@@ -1,0 +1,102 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-data-collection:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: expense_tracker_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: data-collection/package-lock.json
+    
+    - name: Install dependencies
+      working-directory: data-collection
+      run: npm ci
+    
+    - name: Run tests
+      working-directory: data-collection
+      run: npm test
+      env:
+        NODE_ENV: test
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DB_NAME: expense_tracker_test
+        DB_USER: postgres
+        DB_PASSWORD: testpass
+
+  test-data-analyzer:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: expense_tracker_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      working-directory: data-analyzer
+      run: |
+        pip install fastapi uvicorn psycopg2-binary pandas python-dotenv pytest
+    
+    - name: Test analyzer service
+      working-directory: data-analyzer
+      run: |
+        python -c "from main import app; print('Data analyzer imports successfully')"
+      env:
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DB_NAME: expense_tracker_test
+        DB_USER: postgres
+        DB_PASSWORD: rylan_test
+
+  deploy:
+    needs: [test-data-collection, test-data-analyzer]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Deploy Notification
+      run: |
+        echo "All tests passed! Ready for deployment to Render"
+        echo "Render will auto-deploy from main branch"
